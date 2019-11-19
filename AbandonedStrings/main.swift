@@ -18,7 +18,7 @@ import Foundation
 let dispatchGroup = DispatchGroup.init()
 let serialWriterQueue = DispatchQueue.init(label: "writer")
 
-func findFilesIn(_ directories: [String], withExtensions extensions: [String]) -> [String] {
+func findFilesIn(_ directories: [String], excludePath: String?, withExtensions extensions: [String]) -> [String] {
     let fileManager = FileManager.default
     var files = [String]()
     for directory in directories {
@@ -27,6 +27,7 @@ func findFilesIn(_ directories: [String], withExtensions extensions: [String]) -
             return []
         }
         while let path = enumerator.nextObject() as? String {
+            if let exclude = excludePath, "\(directory)/\(path)".hasPrefix(exclude) { continue }
             let fileExtension = (path as NSString).pathExtension.lowercased()
             if extensions.contains(fileExtension) {
                 let fullPath = (directory as NSString).appendingPathComponent(path)
@@ -47,12 +48,12 @@ func contentsOfFile(_ filePath: String) -> String {
     }
 }
 
-func concatenateAllSourceCodeIn(_ directories: [String], withStoryboard: Bool) -> String {
+func concatenateAllSourceCodeIn(_ directories: [String], excludePath: String?, withStoryboard: Bool) -> String {
     var extensions = ["h", "m", "swift", "jsbundle"]
     if withStoryboard {
         extensions.append("storyboard")
     }
-    let sourceFiles = findFilesIn(directories, withExtensions: extensions)
+    let sourceFiles = findFilesIn(directories, excludePath: excludePath, withExtensions: extensions)
     return sourceFiles.reduce("") { (accumulator, sourceFile) -> String in
         return accumulator + contentsOfFile(sourceFile)
     }
@@ -106,8 +107,9 @@ typealias StringsFileToAbandonedIdentifiersMap = [String: [String]]
 
 func findAbandonedIdentifiersIn(_ rootDirectories: [String], withStoryboard: Bool) -> StringsFileToAbandonedIdentifiersMap {
     var map = StringsFileToAbandonedIdentifiersMap()
-    let sourceCode = concatenateAllSourceCodeIn(rootDirectories, withStoryboard: withStoryboard)
-    let stringsFiles = findFilesIn(rootDirectories, withExtensions: ["strings"])
+    let excludePath = getExcludePath()
+    let sourceCode = concatenateAllSourceCodeIn(rootDirectories, excludePath: excludePath, withStoryboard: withStoryboard)
+    let stringsFiles = findFilesIn(rootDirectories, excludePath: excludePath, withExtensions: ["strings"])
     for stringsFile in stringsFiles {
         dispatchGroup.enter()
         DispatchQueue.global().async {
@@ -141,7 +143,22 @@ func getRootDirectories() -> [String]? {
     if isOptionaParameterForWritingAvailable() {
         c.remove(at: c.index(of: "write")!)
     }
+    if isOptionalParameterForExcludePath() {
+        c.removeLast()
+        c.removeLast()
+    }
     return c
+}
+
+func getExcludePath() -> String? {
+    guard isOptionalParameterForExcludePath() else { return nil }
+    return CommandLine.arguments.last!
+}
+
+func isOptionalParameterForExcludePath() -> Bool {
+    let count = CommandLine.arguments.count
+    guard count > 3 else { return false }
+    return CommandLine.arguments[count - 2] == "exclude"
 }
 
 func isOptionalParameterForStoryboardAvailable() -> Bool {
